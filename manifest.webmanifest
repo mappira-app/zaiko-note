@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "在庫・簿外ノート",
+  "short_name": "在庫ノート",
+  "description": "部品の在庫と簿外を記録・確認するノート",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#edf0ef",
+  "theme_color": "#edf0ef",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

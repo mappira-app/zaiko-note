@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>在庫・簿外ノート</title>
+<meta name="theme-color" content="#edf0ef">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="在庫ノート">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: phone-first single column. Sticky header (view switch, search, filters), rows styled like parts-bin tags, floating 記入 button opens a bottom sheet. */
+:root{
+  --bg:#edf0ef; --surface:#ffffff; --sunk:#e2e7e5; --ink:#1b2321; --muted:#5b6764; --line:#d2d9d6;
+  --accent:#2a5b88; --accent-ink:#ffffff; --accent-soft:#dde8f2;
+  --in:#1d7748; --in-soft:#dcefe4; --out:#ad3f2a; --out-soft:#f6e1dc;
+  --warn:#8a5a00; --warn-soft:#f7ecd6;
+  --shadow:0 6px 24px rgba(20,35,45,.14);
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --font-num:"Barlow Condensed","Roboto Condensed","Arial Narrow",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#121716; --surface:#1a2120; --sunk:#232b29; --ink:#e4eae8; --muted:#97a4a0; --line:#2e3836;
+  --accent:#86b4e2; --accent-ink:#0e1a26; --accent-soft:#1f3042;
+  --in:#62cc93; --in-soft:#173527; --out:#f08d76; --out-soft:#3d221c;
+  --warn:#e8bf6a; --warn-soft:#3a2f17;
+  --shadow:0 6px 24px rgba(0,0,0,.5); color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 128px;overflow-x:clip}
+
+header{position:sticky;top:0;z-index:5;background:var(--bg);grid-template-columns:minmax(0,1fr);padding-block:calc(14px + env(safe-area-inset-top,0px)) 10px;display:grid;gap:10px;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{margin:0;white-space:nowrap;font-size:19px;font-weight:700;letter-spacing:.04em}
+.topR{display:flex;align-items:center;gap:8px;min-width:0}
+.badge{font-size:12px;line-height:1.3;white-space:pre-line;color:var(--muted);text-align:right;min-width:0}
+.reload{flex:none;white-space:nowrap;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:13px}
+.reload.spin{opacity:.5}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--sunk);border-radius:10px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;border-radius:8px;padding:8px 0;font-weight:500;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.search{display:flex;gap:8px}
+.search input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px;font-size:16px}
+.search select{min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:0 8px;max-width:44%}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-inline:-2px;padding:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip.ghost{border-style:dashed;color:var(--muted);background:transparent}
+.dates{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)}
+.dates input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 8px}
+
+.banner{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--out-soft);color:var(--out);font-size:13px}
+.summary{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:14px 2px 8px;font-size:13px;color:var(--muted)}
+.list{display:grid;gap:8px}
+.day{margin:14px 2px 0;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.03em}
+
+.row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 14px}
+.part{font-weight:700;font-size:16px;min-width:0;overflow-wrap:anywhere}
+.part .model{font-weight:400;font-size:14.5px;color:var(--muted);margin-left:8px}
+.cat{display:inline-block;font-size:11px;font-weight:500;color:var(--accent);background:var(--accent-soft);border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:2px}
+.meta{grid-column:1/-1;font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:2px 12px;min-width:0}
+.meta span{overflow-wrap:anywhere}
+.memo{grid-column:1/-1;font-size:13px;color:var(--ink);background:var(--sunk);border-radius:6px;padding:4px 8px;overflow-wrap:anywhere}
+.qty{font-family:var(--font-num);font-weight:600;font-variant-numeric:tabular-nums;font-size:24px;line-height:1;text-align:right;white-space:nowrap}
+.qty small{font-family:var(--font-body);font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
+.pill{font-family:var(--font-num);font-weight:600;font-variant-numeric:tabular-nums;font-size:19px;border-radius:8px;padding:2px 10px;min-width:56px;text-align:center}
+.pill.pos{color:var(--in);background:var(--in-soft)} .pill.neg{color:var(--out);background:var(--out-soft)}
+.zero{color:var(--out)}
+
+.empty{border:1px dashed var(--line);border-radius:12px;padding:28px 18px;text-align:center;color:var(--muted);display:grid;gap:6px;justify-items:center}
+.empty strong{color:var(--ink);font-size:16px}
+
+.fab{position:fixed;right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:6;border:0;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:16px;padding:14px 22px;box-shadow:var(--shadow);display:flex;align-items:center;gap:6px}
+.fab span{font-size:22px;line-height:1}
+
+.overlay{position:fixed;inset:0;z-index:20;background:rgba(10,16,20,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:560px;max-height:92%;overflow-y:auto;background:var(--surface);border-radius:18px 18px 0 0;padding:18px max(18px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));display:grid;gap:12px;box-shadow:var(--shadow)}
+@media (min-width:640px){.overlay{align-items:center}.sheet{border-radius:18px}}
+.sheet h2{margin:0;font-size:17px}
+.field{display:grid;gap:4px;min-width:0}
+.field label,.lbl{font-size:12px;font-weight:500;color:var(--muted);letter-spacing:.04em}
+.field input,.field textarea{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px;font-size:16px}
+.field textarea{min-height:64px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kind{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.kind button{border:1.5px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 0;font-weight:700}
+.kind button[data-k="in"][aria-pressed="true"]{border-color:var(--in);background:var(--in-soft);color:var(--in)}
+.kind button[data-k="out"][aria-pressed="true"]{border-color:var(--out);background:var(--out-soft);color:var(--out)}
+.kind button[data-k="move"][aria-pressed="true"]{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.kind.three{grid-template-columns:repeat(3,1fr)}
+.kind button[data-s][aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.sq{display:flex;gap:16px;align-items:flex-end}
+.sq > div{text-align:right;display:grid;gap:2px}
+.sq .lb{font-size:11px;color:var(--muted);font-weight:500}
+.sq .bo{color:var(--muted)}
+.sq .bo.has{color:var(--ink)}
+.tag-bo{color:var(--muted);background:var(--sunk);border:1px solid var(--line)}
+.tag-mv{color:var(--warn);background:var(--warn-soft)}
+.tag-cx{color:var(--out);background:var(--out-soft)}
+.row.cx{opacity:.62}
+.row.cx .pill{text-decoration:line-through}
+.pill.cxr{color:var(--muted);background:var(--sunk)}
+.btn.danger-fill{background:var(--out);border-color:var(--out);color:var(--surface);font-weight:700}
+.stepper{display:grid;grid-template-columns:48px 1fr 48px;gap:6px}
+.stepper button{border:1px solid var(--line);background:var(--bg);border-radius:10px;font-size:22px}
+.stepper input{text-align:center;font-family:var(--font-num);font-weight:600;font-size:22px;font-variant-numeric:tabular-nums}
+.hint{font-size:13px;color:var(--muted);min-height:1.2em}
+.hint b{font-family:var(--font-num);font-size:16px;color:var(--ink)}
+.err{font-size:13px;color:var(--out);min-height:1em}
+.ok{font-size:13px;color:var(--in);min-height:1em}
+.share{display:grid;gap:6px;padding:12px;border-radius:12px;background:var(--sunk)}
+.share code{font-size:12px;word-break:break-all;color:var(--muted)}
+.linkbtn{border:0;background:transparent;color:var(--accent);font-size:13px;padding:6px 0;text-decoration:underline;justify-self:start}
+.banner button{margin-left:8px;border:1px solid currentColor;background:transparent;color:inherit;border-radius:8px;padding:2px 10px;font-size:13px}
+.actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 16px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;min-width:96px}
+.btn.danger{color:var(--out);border-color:var(--out);background:transparent;margin-right:auto}
+.btn.danger.armed{background:var(--out);color:var(--surface)}
+.btn:disabled{opacity:.55}
+.catrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.catrow .nm{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500}
+.catrow .n{font-size:12px;color:var(--muted)}
+.catrow button{border:1px solid var(--line);background:transparent;border-radius:8px;padding:4px 10px;font-size:12px;color:var(--out)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;margin-top:14px}
+.card h3{margin:0;font-size:16px}
+.card p{margin:0}
+.card .two input{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:8px 10px;font-size:16px}
+.prog{font-size:13.5px;color:var(--muted)}
+.prog b{font-family:var(--font-num);font-size:17px;color:var(--ink)}
+.strow{background:var(--surface);border:1px solid var(--line);border-left-width:4px;border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center}
+.strow.ok{border-left-color:var(--in)}
+.strow.bad{border-left-color:var(--warn)}
+.book{font-size:12px;color:var(--muted);text-align:right;white-space:nowrap}
+.book b{font-family:var(--font-num);font-size:19px;color:var(--ink);margin-left:2px}
+.cnt{grid-column:1/-1;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cnt input{width:100px;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:7px 10px;font-family:var(--font-num);font-weight:600;font-size:20px;text-align:center}
+.cnt .same{border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--muted)}
+.diff{font-family:var(--font-num);font-weight:600;font-size:17px}
+.diff.ok{color:var(--in)} .diff.bad{color:var(--warn)}
+.reason{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.reason select,.reason input{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font-size:16px}
+.reason select.missing{border-color:var(--out)}
+.tag-st{color:var(--warn);background:var(--warn-soft)}
+.pill.st{color:var(--warn);background:var(--warn-soft)}
+.pill.eq{color:var(--in);background:var(--in-soft);font-family:var(--font-body);font-size:13px;font-weight:700;padding:5px 10px}
+.combo{display:flex;gap:6px}
+.combo input{flex:1;min-width:0}
+.pick{position:relative;flex:none;display:flex;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:0 12px;font-size:13.5px;font-weight:700;color:var(--accent);white-space:nowrap}
+.pick select{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:16px;cursor:pointer}
+.pick.empty{opacity:.4}
+.pick:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.opts{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 1px}
+.opts::-webkit-scrollbar{display:none}
+.opt{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:13.5px;white-space:nowrap}
+.opt[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
+.addcat{display:flex;gap:8px}
+.addcat input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 12px;font-size:16px}
+
+.toast{position:fixed;left:50%;bottom:calc(88px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:14px;box-shadow:var(--shadow)}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="top">
+      <h1>在庫・簿外ノート</h1>
+      <div class="topR">
+        <span class="badge" id="badge"></span>
+        <button type="button" class="reload" id="reload" aria-label="最新の記録を読み込む">↻ 更新</button>
+      </div>
+    </div>
+    <div class="seg" role="group" aria-label="表示切り替え">
+      <button type="button" data-view="stock" aria-pressed="true">在庫</button>
+      <button type="button" data-view="bogai" aria-pressed="false">簿外</button>
+      <button type="button" data-view="history" aria-pressed="false">履歴</button>
+      <button type="button" data-view="stocktake" aria-pressed="false">棚卸し</button>
+    </div>
+    <div class="search">
+      <input id="q" type="search" placeholder="キーワードで検索" autocomplete="off">
+      <select id="sort" aria-label="並び替え"></select>
+    </div>
+    <div class="chips" id="cats" aria-label="部品名で絞り込み"></div>
+    <div class="chips" id="periods" aria-label="期間で絞り込み" hidden></div>
+    <div class="dates" id="dates" hidden>
+      <input id="from" type="date" aria-label="開始日"><span>〜</span><input id="to" type="date" aria-label="終了日">
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <div class="summary"><span id="sumL"></span><span id="sumR"></span></div>
+  <div class="list" id="list"></div>
+</div>
+
+<button type="button" class="fab" id="fab"><span>＋</span>記入する</button>
+
+
+<div class="overlay" id="ov-entry" hidden>
+  <form class="sheet" id="f" novalidate>
+    <h2 id="f-title">記入する</h2>
+    <div class="field"><span class="lbl">区分</span>
+      <div class="kind three" role="group" aria-label="区分">
+        <button type="button" data-k="in" aria-pressed="false">＋ 入庫</button>
+        <button type="button" data-k="out" aria-pressed="true">− 使用</button>
+        <button type="button" data-k="move" aria-pressed="false" id="f-movebtn">⇄ 移動</button>
+      </div>
+    </div>
+    <div class="two">
+      <div class="field"><label for="f-date">日付</label><input id="f-date" type="date" required></div>
+      <div class="field"><span class="lbl" id="f-store-lbl">保管</span>
+        <div class="kind" role="group" aria-labelledby="f-store-lbl">
+          <button type="button" data-s="在庫" aria-pressed="true">在庫</button>
+          <button type="button" data-s="簿外" aria-pressed="false">簿外</button>
+        </div>
+      </div>
+    </div>
+    <div class="field"><label for="f-qty">個数</label>
+      <div class="stepper">
+        <button type="button" id="f-dec" aria-label="1減らす">−</button>
+        <input id="f-qty" type="number" inputmode="numeric" min="1" step="1" value="1">
+        <button type="button" id="f-inc" aria-label="1増やす">＋</button>
+      </div>
+    </div>
+    <div class="field"><label for="f-cat">部品名（下から選ぶか、新しく入力）</label><div class="combo"><input id="f-cat" autocomplete="off" placeholder="例：六角ボルト"><span class="pick">▼一覧<select id="s-cat" aria-label="部品名を一覧から選ぶ"></select></span></div><div class="opts" id="o-cat"></div></div>
+    <div class="field"><label for="f-part">型式</label><div class="combo"><input id="f-part" autocomplete="off" placeholder="例：M4×10"><span class="pick">▼一覧<select id="s-part" aria-label="型式を一覧から選ぶ"></select></span></div><div class="opts" id="o-part"></div></div>
+    <div class="hint" id="f-hint"></div>
+    <div class="field"><label for="f-place">使用した場所</label><div class="combo"><input id="f-place" autocomplete="off" placeholder="例：2号機"><span class="pick">▼一覧<select id="s-place" aria-label="使用した場所を一覧から選ぶ"></select></span></div><div class="opts" id="o-place"></div></div>
+    <div class="field"><label for="f-person">担当者</label><div class="combo"><input id="f-person" autocomplete="off" placeholder="例：田中"><span class="pick">▼一覧<select id="s-person" aria-label="担当者を一覧から選ぶ"></select></span></div><div class="opts" id="o-person"></div></div>
+    <div class="field"><label for="f-memo">メモ</label><textarea id="f-memo"></textarea></div>
+    <div class="err" id="f-err"></div>
+    <div class="actions">
+      <button type="button" class="btn danger" id="f-del" hidden>取り消す</button>
+      <button type="button" class="btn" data-close>キャンセル</button>
+      <button type="submit" class="btn primary" id="f-save">保存</button>
+    </div>
+  </form>
+</div>
+
+<div class="overlay" id="ov-cats" hidden>
+  <div class="sheet">
+    <h2>候補の管理</h2>
+    <div class="seg" id="c-kinds" role="group" aria-label="管理する項目">
+      <button type="button" data-kind="cat" aria-pressed="true">部品名</button>
+      <button type="button" data-kind="place" aria-pressed="false">場所</button>
+      <button type="button" data-kind="person" aria-pressed="false">担当者</button>
+    </div>
+    <div class="addcat"><input id="c-new" autocomplete="off"><button type="button" class="btn primary" id="c-add">追加</button></div>
+    <div id="c-list"></div>
+    <div class="hint">ここに追加したものが、記入するときの候補に出ます。記録で使われているものは削除できません。</div>
+    <div class="err" id="c-err"></div>
+    <button type="button" class="linkbtn" id="c-setup">接続の設定・職場の人に送るリンク</button>
+    <div class="actions"><button type="button" class="btn" data-close>閉じる</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-st" hidden>
+  <div class="sheet">
+    <h2>棚卸しを確定する</h2>
+    <div class="prog" id="st-sum"></div>
+    <div class="list" id="st-mis"></div>
+    <div class="hint">確定すると、合わなかった部品は差の分が「棚卸し」の記録として足され、在庫が実数に合います。数えた結果はスプレッドシートの「棚卸し」シートに残ります。</div>
+    <div class="err" id="st-err"></div>
+    <div class="actions"><button type="button" class="btn" data-close>戻る</button><button type="button" class="btn primary" id="st-go">確定する</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-cx" hidden>
+  <div class="sheet">
+    <h2 id="cx-title">この記録を取り消す</h2>
+    <div class="list" id="cx-rows"></div>
+    <div class="hint" id="cx-note"></div>
+    <div id="cx-form" class="two">
+      <div class="field"><label for="cx-reason">理由（任意）</label><input id="cx-reason" autocomplete="off" placeholder="例：部品を間違えた"></div>
+      <div class="field"><label for="cx-person">取り消す人</label><input id="cx-person" autocomplete="off" placeholder="例：田中"></div>
+    </div>
+    <div class="err" id="cx-err"></div>
+    <div class="actions"><button type="button" class="btn" data-close>閉じる</button><button type="button" class="btn danger-fill" id="cx-go">取り消す</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-std" hidden>
+  <div class="sheet">
+    <h2 id="std-title"></h2>
+    <div class="prog" id="std-meta"></div>
+    <div class="list" id="std-list"></div>
+    <div class="actions"><button type="button" class="btn" data-close>閉じる</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ov-setup" hidden>
+  <form class="sheet" id="su" novalidate>
+    <h2>接続の設定</h2>
+    <div class="hint">記録をしまっているスプレッドシート（Apps Script）につなぎます。設定はこのスマホのこのブラウザに残ります。</div>
+    <div class="field"><label for="su-url">APIのURL（…/exec で終わるもの）</label><input id="su-url" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div class="field"><label for="su-key">合言葉</label><input id="su-key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="例：zk-…"></div>
+    <div class="err" id="su-err"></div>
+    <div class="ok" id="su-ok"></div>
+    <div class="share" id="su-share" hidden>
+      <b>職場の人に送るリンク</b>
+      <span class="hint">このリンクを開くだけで、URLと合言葉が入った状態になります。職場の人にだけ送ってください。</span>
+      <code id="su-link"></code>
+      <button type="button" class="btn" id="su-copy">リンクをコピー</button>
+    </div>
+    <div class="actions"><button type="button" class="btn" data-close id="su-close">閉じる</button><button type="submit" class="btn primary" id="su-go">つなぐ</button></div>
+  </form>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const WD = "日月火水木金土";
+const S = {
+  entries: [], lists: {cat: [], place: [], person: []}, manageKind: "cat", ready: false, loading: false, loadedAt: null,
+  view: "stock", cat: "", q: "", period: "all", from: "", to: "",
+  sortStock: "name", sortHist: "new", editing: null, kind: "out",
+  stocktakes: [], st: null, showZero: false, kindOnly: false, boOnly: false, hideCx: false, store: "在庫", cx: null
+};
+const REASONS = ["記入漏れ（使った分）","記入漏れ（入れた分）","簿外から補充した","簿外へ移した","破損・不良で廃棄","紛失・原因不明","前回の数え間違い","その他"];
+const SORTS = {
+  stock: [["name","部品名・型式順"],["low","在庫が少ない順"],["high","在庫が多い順"],["recent","最近動いた順"]],
+  bogai: [["name","部品名・型式順"],["low","簿外が少ない順"],["high","簿外が多い順"],["recent","最近動いた順"]],
+  history: [["new","新しい順"],["old","古い順"],["part","部品名・型式順"],["qty","個数の多い順"]]
+};
+SORTS.stocktake = [["name","部品名・型式順"],["low","在庫が少ない順"],["bogai","簿外が多い順"],["recent","最近動いた順"]];
+// 在庫・簿外の一覧で、その画面が数える保管
+const VIEW_STORE = {stock: "在庫", bogai: "簿外"};
+const PERIODS = [["all","全期間"],["month","今月"],["last","先月"],["year","今年"],["custom","期間を指定"]];
+
+// サーバー側（Code.gs の doPost）の関数を呼ぶ。
+// 本文を文字列のまま送ると Content-Type が text/plain になり、事前確認（CORS の preflight）なしで Apps Script に届く
+const API = {url: "", key: ""};
+async function call(fn, ...args){
+  if (!API.url || !API.key) throw Object.assign(new Error("接続の設定がまだです。"), {code: "setup"});
+  let res, d;
+  try { res = await fetch(API.url, {method: "POST", body: JSON.stringify({key: API.key, action: fn, args})}); }
+  catch (e){ throw new Error(navigator.onLine === false ? "電波が届いていません。通信できる場所でもう一度お試しください。" : "サーバーにつながりませんでした。少し待ってもう一度お試しください。"); }
+  try { d = await res.json(); }
+  catch (e){ throw new Error("サーバーから正しい返事がありませんでした。「接続の設定」のURLを確認してください。"); }
+  if (!d.ok) throw Object.assign(new Error(d.error || "うまくいきませんでした。"), {code: d.code});
+  return d.data;
+}
+
+function h(tag, attrs, ...kids){
+  const el = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs||{})){
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c);
+  return el;
+}
+const pad = n => String(n).padStart(2,"0");
+const iso = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const today = () => iso(new Date());
+const norm = s => String(s||"").normalize("NFKC").toLowerCase();
+const cmpJa = (a,b) => a.localeCompare(b,"ja");
+function fmtDay(s){
+  if (!s) return "日付なし";
+  const [y,m,d] = s.split("-").map(Number);
+  const w = WD[new Date(y,m-1,d).getDay()];
+  return (y !== new Date().getFullYear() ? y+"年" : "") + m+"月"+d+"日（"+w+"）";
+}
+const shortDay = s => { if (!s) return "—"; const [,m,d] = s.split("-").map(Number); return m+"/"+d; };
+const signed = n => (n > 0 ? "+" : n < 0 ? "−" : "±") + Math.abs(n);
+const store = {
+  get(k){ try { return localStorage.getItem(k) || ""; } catch(e){ return ""; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+};
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 1800);
+}
+// 今日なら 9:05、前の日なら 10/28 9:05
+const fmtTime = d => (d.toDateString() === new Date().toDateString() ? "" : (d.getMonth()+1) + "/" + d.getDate() + " ")
+  + d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+const errMsg = e => (e && e.message ? e.message.replace(/^Exception:\s*/,"") : "") || "うまくいきませんでした。通信状態を確認して、もう一度お試しください。";
+
+/* ---------- データの読み込み ---------- */
+// at があるのは、前回しまっておいた記録を起動直後に出すとき
+function apply(d, at){
+  S.entries = d.entries || [];
+  S.lists = Object.assign({cat: [], place: [], person: []}, d.lists);
+  S.stocktakes = d.stocktakes || [];
+  S.ready = true; S.loadedAt = at || new Date();
+  if (!at) store.set("pn-data", JSON.stringify({at: S.loadedAt.getTime(), d}));
+  $("#banner").hidden = true;
+  render();
+  if (!$("#ov-entry").hidden){ renderOpts(); updateHint(); }
+  if (!$("#ov-cats").hidden) renderItemList();
+  if (!$("#ov-st").hidden) renderStConfirm();
+}
+async function refresh(){
+  if (S.loading) return;
+  S.loading = true; $("#reload").classList.add("spin");
+  try { apply(await call("getData")); }
+  catch (e){
+    const b = $("#banner");
+    b.textContent = (S.ready ? "最新の記録を読み込めませんでした（表示は" + fmtTime(S.loadedAt) + "時点）。" : "記録を読み込めませんでした。") + errMsg(e);
+    if (e.code === "setup" || e.code === "key") b.append(h("button", {type:"button", onclick: openSetup}, "設定する"));
+    b.hidden = false; if (!S.ready) render();
+  }
+  finally { S.loading = false; $("#reload").classList.remove("spin"); }
+}
+
+/* ---------- 集計 ---------- */
+const FIELD = {cat: "category", place: "place", person: "person"};
+const LABEL = {cat: "部品名", place: "場所", person: "担当者"};
+// 部品の表示：部品名を太字、型式をその横に
+const pname = (c, p) => [c || p || "（名前なし）", c && p ? h("span", {class:"model"}, p) : null];
+// 取り消しの記録か、取り消された記録か（どちらも在庫の数は差し引きゼロ）
+const isCx = e => e.kind === "取消" || !!e.cancelRef;
+// 候補 = 一覧シートに登録したもの + 記録で使われたもの
+function allItems(kind){
+  const m = new Map(), field = FIELD[kind];
+  for (const name of S.lists[kind] || []) m.set(name, {name, listed:true, n:0});
+  for (const e of S.entries){
+    const n = e[field] || ""; if (!n) continue;
+    if (!m.has(n)) m.set(n, {name:n, listed:false, n:0});
+    m.get(n).n++;
+  }
+  return [...m.values()].sort((a,b) => cmpJa(a.name,b.name));
+}
+function stockRows(){
+  const m = new Map();
+  for (const e of S.entries){
+    const k = (e.category||"") + "\u0000" + (e.part||"");
+    let r = m.get(k);
+    if (!r) m.set(k, r = {category:e.category||"", part:e.part||"", s:{"在庫":0, "簿外":0}, count:0, last:""});
+    r.s[e.storage === "簿外" ? "簿外" : "在庫"] += Number(e.qty) || 0; r.count++;
+    if ((e.date||"") > r.last) r.last = e.date || "";
+  }
+  return [...m.values()];
+}
+// 部品の在庫・簿外の数。記録が1件もなければ null
+function stockOf(cat, part){
+  const s = {"在庫":0, "簿外":0}; let hit = false;
+  for (const e of S.entries) if ((e.category||"") === cat && (e.part||"") === part){ s[e.storage === "簿外" ? "簿外" : "在庫"] += Number(e.qty)||0; hit = true; }
+  return hit ? s : null;
+}
+// low / high は store（在庫 か 簿外）の数で並べる
+const sortParts = (rows, key, store = "在庫") => {
+  if (key === "low") rows.sort((a,b) => a.s[store]-b.s[store] || cmpJa(a.part,b.part));
+  else if (key === "high") rows.sort((a,b) => b.s[store]-a.s[store] || cmpJa(a.part,b.part));
+  else if (key === "bogai") rows.sort((a,b) => b.s["簿外"]-a.s["簿外"] || cmpJa(a.part,b.part));
+  else if (key === "recent") rows.sort((a,b) => b.last.localeCompare(a.last) || cmpJa(a.part,b.part));
+  else rows.sort((a,b) => cmpJa(a.category,b.category) || cmpJa(a.part,b.part));
+  return rows;
+};
+function periodRange(){
+  const n = new Date(), y = n.getFullYear(), m = n.getMonth();
+  switch (S.period){
+    case "month": return [iso(new Date(y,m,1)), iso(new Date(y,m+1,0))];
+    case "last": return [iso(new Date(y,m-1,1)), iso(new Date(y,m,0))];
+    case "year": return [y+"-01-01", y+"-12-31"];
+    case "custom": return [S.from || "0000-00-00", S.to || "9999-99-99"];
+  }
+  return null;
+}
+const uniq = arr => [...new Set(arr.filter(Boolean))].sort(cmpJa);
+
+/* ---------- 表示 ---------- */
+function renderControls(){
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === S.view)));
+  const sel = $("#sort"), cur = S.view === "history" ? S.sortHist : S.sortStock;
+  sel.replaceChildren(...SORTS[S.view].map(([v,l]) => h("option", {value:v, selected: v===cur}, l)));
+  if (S.view !== "history" && !SORTS[S.view].some(([v]) => v === cur)){ S.sortStock = "name"; sel.value = "name"; }
+  const cats = allItems("cat");
+  if (S.cat && !cats.some(c => c.name === S.cat)) S.cat = "";
+  $("#cats").replaceChildren(
+    h("button", {type:"button", class:"chip", "aria-pressed": String(!S.cat), onclick(){ S.cat=""; render(); }}, "すべて"),
+    ...cats.map(c => h("button", {type:"button", class:"chip", "aria-pressed": String(S.cat===c.name), onclick(){ S.cat = S.cat===c.name ? "" : c.name; render(); }}, c.name)),
+    h("button", {type:"button", class:"chip ghost", onclick: openManage}, "候補を管理")
+  );
+  const hist = S.view === "history", store = VIEW_STORE[S.view];
+  $("#periods").hidden = !(hist || store);
+  $("#dates").hidden = !(hist && S.period === "custom");
+  $("#periods").replaceChildren(...PERIODS.map(([v,l]) =>
+    h("button", {type:"button", class:"chip", "aria-pressed": String(S.period===v), onclick(){ S.period=v; render(); }}, l)),
+    h("button", {type:"button", class:"chip", "aria-pressed": String(S.boOnly), onclick(){ S.boOnly = !S.boOnly; render(); }}, "簿外だけ"),
+    h("button", {type:"button", class:"chip", "aria-pressed": String(S.kindOnly), onclick(){ S.kindOnly = !S.kindOnly; render(); }}, "棚卸し調整だけ"),
+    h("button", {type:"button", class:"chip", "aria-pressed": String(S.hideCx), onclick(){ S.hideCx = !S.hideCx; render(); }}, "取り消しを隠す"));
+  if (store) $("#periods").replaceChildren(
+    h("button", {type:"button", class:"chip", "aria-pressed": String(S.showZero), onclick(){ S.showZero = !S.showZero; render(); }}, store + "が0個の部品も表示"));
+  $("#fab").hidden = S.view === "stocktake";
+  $("#badge").textContent = S.loadedAt ? S.entries.length + "件\n" + fmtTime(S.loadedAt) + "時点" : "";
+}
+
+const emptyState = (title, body) => h("div", {class:"empty"}, h("strong", {}, title), h("span", {}, body));
+
+// 在庫タブ・簿外タブ。その保管に1個以上ある部品を出し（「0個も表示」で記録のある部品すべて）、もう一方の数も並べる
+function renderStock(){
+  const q = norm(S.q), store = VIEW_STORE[S.view], other = store === "在庫" ? "簿外" : "在庫";
+  const all = stockRows().filter(r =>
+    (!S.cat || r.category === S.cat) && (!q || norm(r.part+" "+r.category).includes(q)));
+  let rows = S.showZero ? all : all.filter(r => r.s[store] !== 0);
+  sortParts(rows, S.sortStock, store);
+  let mine = 0, oth = 0; for (const r of rows){ mine += r.s[store]; oth += r.s[other]; }
+  $("#sumL").textContent = rows.length + "種類の部品";
+  $("#sumR").textContent = rows.length ? "合計 " + store + " " + mine + "個（" + other + " " + oth + "個）" : "";
+  if (!rows.length){
+    return [!S.entries.length
+      ? emptyState("まだ記録がありません", "右下の「記入する」から、入庫（＋）や使用（−）を記入すると、ここに部品ごとの残りが出ます。")
+      : all.length
+      ? emptyState(store + "にある部品はありません", "上の「" + store + "が0個の部品も表示」を押すと、0個の部品も出ます。")
+      : emptyState("該当する部品がありません", "検索語や部品名を変えてみてください。")];
+  }
+  return rows.map(r => h("button", {type:"button", class:"row", onclick(){
+      S.view = "history"; S.cat = r.category; S.q = r.part; S.period = "all"; $("#q").value = r.part; render(); window.scrollTo(0,0);
+    }},
+    h("div", {class:"part"}, ...pname(r.category, r.part)),
+    h("div", {class:"sq"},
+      ...["在庫", "簿外"].map(k => h("div", {}, h("span", {class:"lb"}, k),
+        h("span", {class:"qty" + (k !== store ? " bo" : r.s[k] <= 0 ? " zero" : "")}, String(r.s[k]))))),
+    h("div", {class:"meta"}, h("span", {}, "最終 " + shortDay(r.last)), h("span", {}, r.count + "件の記録"))
+  ));
+}
+
+function renderHistory(){
+  const q = norm(S.q), range = periodRange();
+  let rows = S.entries.filter(e =>
+    (!S.cat || (e.category||"") === S.cat) &&
+    (!range || ((e.date||"") >= range[0] && (e.date||"") <= range[1])) &&
+    (!S.kindOnly || e.kind === "棚卸し") &&
+    (!S.boOnly || e.storage === "簿外") &&
+    (!S.hideCx || !isCx(e)) &&
+    (!q || norm([e.part,e.category,e.place,e.person,e.memo].join(" ")).includes(q)));
+  const byDate = (a,b) => (b.date||"").localeCompare(a.date||"") || (b.createdAt||0)-(a.createdAt||0);
+  if (S.sortHist === "old") rows.sort((a,b) => -byDate(a,b));
+  else if (S.sortHist === "part") rows.sort((a,b) => cmpJa(a.category||"",b.category||"") || cmpJa(a.part||"",b.part||"") || byDate(a,b));
+  else if (S.sortHist === "qty") rows.sort((a,b) => (b.qty||0)-(a.qty||0) || byDate(a,b));
+  else rows.sort(byDate);
+  let plus = 0, minus = 0;
+  for (const e of rows){ if (isCx(e)) continue; const n = Number(e.qty)||0; if (n > 0) plus += n; else minus += n; }
+  $("#sumL").textContent = rows.length + "件";
+  $("#sumR").textContent = rows.length ? "入庫 +" + plus + " ／ 使用 −" + Math.abs(minus) : "";
+  if (!rows.length){
+    return [S.entries.length
+      ? emptyState("該当する記録がありません", "検索語・部品名・期間を変えてみてください。")
+      : emptyState("まだ記録がありません", "右下の「記入する」から最初の1件を記入してください。")];
+  }
+  const grouped = S.sortHist === "new" || S.sortHist === "old";
+  const out = []; let lastDay = null;
+  for (const e of rows){
+    if (grouped && e.date !== lastDay){ out.push(h("div", {class:"day"}, fmtDay(e.date))); lastDay = e.date; }
+    const n = Number(e.qty) || 0;
+    const meta = [];
+    if (!grouped) meta.push(h("span", {}, shortDay(e.date)));
+    if (e.place) meta.push(h("span", {}, "場所：" + e.place));
+    if (e.person) meta.push(h("span", {}, "担当：" + e.person));
+    const rev = e.kind === "取消", dead = !rev && !!e.cancelRef;
+    out.push(h("button", {type:"button", class:"row" + (dead ? " cx" : ""), onclick: () => rev || dead ? openCancel(e) : openEntry(e)},
+      h("div", {class:"part"}, rev ? h("span", {class:"cat tag-cx"}, "取り消し") : null,
+        dead ? h("span", {class:"cat tag-cx"}, "取り消し済み") : null,
+        e.kind === "棚卸し" ? h("span", {class:"cat tag-st"}, "棚卸し") : null,
+        e.kind === "移動" ? h("span", {class:"cat tag-mv"}, "移動") : null,
+        e.storage === "簿外" ? h("span", {class:"cat tag-bo"}, "簿外") : null,
+        ...pname(e.category, e.part)),
+      h("div", {class:"pill " + (rev ? "cxr" : n >= 0 ? "pos" : "neg")}, signed(n)),
+      meta.length ? h("div", {class:"meta"}, meta) : null,
+      e.memo ? h("div", {class:"memo"}, e.memo) : null
+    ));
+  }
+  return out;
+}
+
+function render(){
+  renderControls();
+  if (!S.ready){
+    $("#list").replaceChildren(emptyState("読み込み中…", "スプレッドシートから記録を取り寄せています。"));
+    $("#sumL").textContent = ""; $("#sumR").textContent = "";
+    return;
+  }
+  // 棚卸しで数を入力している最中は、自動更新で入力欄を作り直さない
+  if (S.view === "stocktake" && S.st && $("#list").contains(document.activeElement)){ updateProg(); return; }
+  $("#list").replaceChildren(...(VIEW_STORE[S.view] ? renderStock() : S.view === "history" ? renderHistory() : renderStocktake()));
+}
+
+/* ---------- 記入シート ---------- */
+const F = id => $("#f-" + id);
+function setKind(k){
+  S.kind = k;
+  document.querySelectorAll(".kind button[data-k]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === k)));
+  // 移動のときは「保管」が移動の向きになる（押したほうから減らす）
+  $("#f-store-lbl").textContent = k === "move" ? "移動の向き" : "保管";
+  document.querySelectorAll(".kind button[data-s]").forEach(b => {
+    b.textContent = k === "move" ? (b.dataset.s === "在庫" ? "在庫→簿外" : "簿外→在庫") : b.dataset.s;
+  });
+  updateHint();
+}
+function setStore(v){
+  S.store = v;
+  document.querySelectorAll(".kind button[data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === v)));
+  updateHint();
+}
+// 候補の出し方：
+//  ・▼一覧（スマホ標準の選択画面）に全部を五十音順で
+//  ・入力欄の下のボタンに、何も打っていなければよく使う上位8個、打っていればそれを含むものを最大30個
+const OPT_TOP = 8, OPT_MAX = 30;
+function optSources(){
+  const cat = F("cat").value.trim();
+  const freq = (list, field) => {
+    const m = new Map();
+    for (const name of list) m.set(name, 0);
+    for (const e of S.entries){ const v = e[field]; if (v && m.has(v)) m.set(v, m.get(v) + 1); }
+    return m;
+  };
+  const partList = uniq(S.entries.filter(e => !cat || (e.category||"") === cat).map(e => e.part));
+  return {
+    cat: freq(allItems("cat").map(c => c.name), "category"),
+    part: freq(partList, "part"),
+    place: freq(allItems("place").map(c => c.name), "place"),
+    person: freq(allItems("person").map(c => c.name), "person")
+  };
+}
+function fillPicker(key, counts){
+  const sel = $("#s-" + key), names = [...counts.keys()].sort(cmpJa);
+  const opts = [h("option", {value:""}, names.length ? "一覧から選ぶ（" + names.length + "件）" : "候補はまだありません")];
+  if (key === "part" && !F("cat").value.trim()){
+    // 部品名が未入力のときは、型式を部品名ごとにまとめて出す
+    const groups = new Map();
+    for (const e of S.entries) if (e.part){
+      const g = e.category || "（部品名なし）";
+      if (!groups.has(g)) groups.set(g, new Set());
+      groups.get(g).add(e.part);
+    }
+    for (const g of [...groups.keys()].sort(cmpJa))
+      opts.push(h("optgroup", {label:g}, ...[...groups.get(g)].sort(cmpJa).map(p => h("option", {value:p + "\u0000" + g}, p))));
+  } else {
+    opts.push(...names.map(n => h("option", {value:n}, n)));
+  }
+  sel.replaceChildren(...opts);
+  sel.value = "";
+  sel.parentElement.classList.toggle("empty", !names.length);
+}
+function renderOpts(){
+  for (const [key, counts] of Object.entries(optSources())){
+    fillPicker(key, counts);
+    const val = F(key).value.trim(), q = norm(val);
+    const byUse = [...counts.keys()].sort((a,b) => counts.get(b) - counts.get(a) || cmpJa(a,b));
+    const exact = counts.has(val);
+    const shown = !q || exact ? byUse.slice(0, OPT_TOP) : byUse.filter(n => norm(n).includes(q)).slice(0, OPT_MAX);
+    if (exact && !shown.includes(val)) shown.unshift(val);
+    $("#o-" + key).replaceChildren(...shown.map(n => h("button", {type:"button", class:"opt", "aria-pressed": String(n === val), onclick(){
+      F(key).value = n === val ? "" : n;
+      F(key).dispatchEvent(new Event("input"));
+    }}, n)));
+  }
+}
+function updateHint(){
+  const cat = F("cat").value.trim(), part = F("part").value.trim(), hint = F("hint");
+  if (!part && !cat){ hint.textContent = ""; return; }
+  const cur = stockOf(cat, part);
+  if (cur === null){ hint.replaceChildren("新しい部品として登録されます"); return; }
+  const ed = S.editing;
+  if (ed && (ed.category||"") === cat && (ed.part||"") === part) cur[ed.storage === "簿外" ? "簿外" : "在庫"] -= Number(ed.qty)||0;
+  const n = Math.max(0, parseInt(F("qty").value, 10) || 0);
+  const after = {...cur};
+  if (S.kind === "move"){ after[S.store] -= n; after[S.store === "在庫" ? "簿外" : "在庫"] += n; }
+  else after[S.store] += S.kind === "in" ? n : -n;
+  const part1 = k => after[k] === cur[k] ? [k + " ", h("b", {}, String(cur[k]))] : [k + " ", h("b", {}, String(cur[k])), " → ", h("b", {}, String(after[k]))];
+  hint.replaceChildren(...part1("在庫"), "　／　", ...part1("簿外"), " 個");
+}
+function openEntry(e){
+  S.editing = e || null;
+  F("title").textContent = e ? "記録を直す" : "記入する";
+  F("date").value = e ? (e.date || today()) : today();
+  F("qty").value = e ? Math.abs(Number(e.qty)||0) || 1 : 1;
+  F("cat").value = e ? (e.category||"") : (S.cat || "");
+  F("part").value = e ? (e.part||"") : "";
+  F("place").value = e ? (e.place||"") : "";
+  F("person").value = e ? (e.person||"") : store.get("pn-person");
+  F("memo").value = e ? (e.memo||"") : "";
+  F("err").textContent = "";
+  F("del").hidden = !e;
+  F("save").disabled = false;
+  F("movebtn").hidden = !!e;
+  setKind(e ? ((Number(e.qty)||0) >= 0 ? "in" : "out") : "out");
+  setStore(e ? (e.storage === "簿外" ? "簿外" : "在庫") : (S.view === "bogai" ? "簿外" : "在庫"));
+  renderOpts(); updateHint();
+  $("#ov-entry").hidden = false;
+  if (!e) setTimeout(() => F(F("cat").value ? "part" : "cat").focus(), 50);
+}
+function closeSheets(){ document.querySelectorAll(".overlay").forEach(o => o.hidden = true); S.editing = null; S.cx = null; }
+
+async function saveEntry(ev){
+  ev.preventDefault();
+  const part = F("part").value.trim();
+  const n = parseInt(F("qty").value, 10), date = F("date").value;
+  if (!part && !F("cat").value.trim()){ F("err").textContent = "部品名か型式を入力してください。"; F("cat").focus(); return; }
+  if (!n || n < 1){ F("err").textContent = "個数は1以上の数字で入力してください。"; F("qty").focus(); return; }
+  if (!date){ F("err").textContent = "日付を入力してください。"; return; }
+  const move = S.kind === "move";
+  const data = {
+    id: S.editing ? S.editing.id : "",
+    date, category: F("cat").value.trim(), part, qty: S.kind === "in" ? n : -n, storage: S.store,
+    place: F("place").value.trim(), person: F("person").value.trim(), memo: F("memo").value.trim()
+  };
+  if (move){ data.qty = n; data.from = S.store; }
+  F("save").disabled = true; F("save").textContent = "保存中…"; F("err").textContent = "";
+  try {
+    const d = await call(move ? "moveStock" : "saveEntry", data);
+    if (data.person) store.set("pn-person", data.person);
+    const wasEdit = !!S.editing;
+    closeSheets(); apply(d); toast(wasEdit ? "直しました" : "記入しました");
+  } catch (e){
+    F("err").textContent = errMsg(e); F("save").disabled = false;
+  } finally { F("save").textContent = "保存"; }
+}
+/* ---------- 取り消し ---------- */
+// 移動は2行で1組なので、もう片方も一緒に出す
+function cxGroup(e){
+  if (e.kind !== "移動") return [e];
+  const mate = S.entries.find(x => x !== e && x.kind === "移動" && x.createdAt === e.createdAt
+    && x.category === e.category && x.part === e.part && x.qty === -e.qty && !x.cancelRef === !e.cancelRef);
+  return mate ? [e, mate] : [e];
+}
+function cxRow(e){
+  const n = Number(e.qty) || 0, rev = e.kind === "取消";
+  const meta = [h("span", {}, shortDay(e.date))];
+  if (e.storage === "簿外") meta.push(h("span", {}, "簿外"));
+  if (e.place) meta.push(h("span", {}, "場所：" + e.place));
+  if (e.person) meta.push(h("span", {}, (rev ? "取り消した人：" : "担当：") + e.person));
+  return h("div", {class:"row" + (!rev && e.cancelRef ? " cx" : "")},
+    h("div", {class:"part"}, ...pname(e.category, e.part)),
+    h("div", {class:"pill " + (rev ? "cxr" : n >= 0 ? "pos" : "neg")}, signed(n)),
+    h("div", {class:"meta"}, meta),
+    e.memo ? h("div", {class:"memo"}, e.memo) : null);
+}
+// まだ取り消していない記録なら確認画面、取り消し済み・取り消しの記録なら元と取消の組を見せるだけ
+function openCancel(e){
+  const done = e.kind === "取消" || !!e.cancelRef;
+  S.cx = done ? null : e;
+  let rows;
+  if (done){
+    const pair = e.kind === "取消" ? [S.entries.find(x => x.id === e.cancelRef), e] : [e, S.entries.find(x => x.id === e.cancelRef)];
+    rows = pair.filter(Boolean);
+  } else rows = cxGroup(e);
+  $("#cx-title").textContent = done ? "取り消した記録" : "この記録を取り消す";
+  $("#cx-rows").replaceChildren(...rows.map(cxRow));
+  $("#cx-note").textContent = done
+    ? "上が元の記録、下が取り消しの記録です。在庫の数は差し引きゼロになっています。取り消しをやめたいときは、同じ内容を新しく記入してください。"
+    : "記録は消さずに、逆の数（" + rows.map(x => signed(-x.qty)).join("・") + "）の「取り消し」の記録を今日の日付で足します。履歴には両方残ります。"
+      + (rows.length > 1 ? "移動は在庫と簿外の2行まとめて取り消します。" : "");
+  $("#cx-form").hidden = done; $("#cx-go").hidden = done;
+  $("#cx-reason").value = ""; $("#cx-person").value = store.get("pn-person"); $("#cx-err").textContent = "";
+  $("#cx-go").disabled = false;
+  document.querySelectorAll(".overlay").forEach(o => o.hidden = true);
+  $("#ov-cx").hidden = false;
+}
+async function cancelEntry(){
+  const e = S.cx; if (!e) return;
+  const person = $("#cx-person").value.trim();
+  if (!person){ $("#cx-err").textContent = "取り消す人の名前を入れてください。"; $("#cx-person").focus(); return; }
+  $("#cx-go").disabled = true; $("#cx-err").textContent = "";
+  try {
+    const d = await call("cancelEntry", e.id, $("#cx-reason").value.trim(), person);
+    store.set("pn-person", person);
+    closeSheets(); apply(d); toast("取り消しました");
+  } catch (err){ $("#cx-err").textContent = errMsg(err); $("#cx-go").disabled = false; }
+}
+
+/* ---------- 候補の管理 ---------- */
+function renderItemList(){
+  const kind = S.manageKind, label = LABEL[kind], items = allItems(kind);
+  document.querySelectorAll("#c-kinds button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+  $("#c-new").placeholder = "新しい" + label + "を入力";
+  $("#c-list").replaceChildren(...(items.length ? items.map(c => h("div", {class:"catrow"},
+    h("span", {class:"nm"}, c.name),
+    h("span", {class:"n"}, c.n + "件"),
+    c.n === 0 && c.listed ? h("button", {type:"button", async onclick(ev){
+      ev.target.disabled = true;
+      try { apply(await call("deleteItem", kind, c.name)); $("#c-err").textContent = ""; }
+      catch (e){ $("#c-err").textContent = errMsg(e); ev.target.disabled = false; }
+    }}, "削除") : null
+  )) : [h("div", {class:"hint"}, label + "はまだありません。")]));
+}
+function openManage(){ $("#c-err").textContent = ""; $("#c-new").value = ""; renderItemList(); $("#ov-cats").hidden = false; }
+async function addItem(){
+  const name = $("#c-new").value.trim(), kind = S.manageKind;
+  if (!name) return;
+  if (allItems(kind).some(c => c.name === name)){ $("#c-err").textContent = "その" + LABEL[kind] + "はもうあります。"; return; }
+  $("#c-add").disabled = true;
+  try { apply(await call("addItem", kind, name)); $("#c-new").value = ""; $("#c-err").textContent = ""; }
+  catch (e){ $("#c-err").textContent = errMsg(e); }
+  finally { $("#c-add").disabled = false; }
+}
+
+/* ---------- 棚卸し ---------- */
+// 入力途中の数はこの端末に下書きとして残す（画面を閉じても消えない）
+const keyOf = (c, p) => c + "\u0000" + p;
+function saveDraft(){ store.set("pn-st", S.st ? JSON.stringify(S.st) : ""); }
+function loadDraft(){ try { const d = JSON.parse(store.get("pn-st") || "null"); if (d && d.counts){ d.storage = d.storage || "在庫"; S.st = d; } } catch(e){} }
+const bookLabel = () => S.st && S.st.storage === "簿外" ? "記録" : "帳簿";
+const isCounted = c => c && c.counted !== "" && c.counted != null;
+// 棚卸しする保管（在庫か簿外）の数を qty に入れた部品一覧
+function stItems(){
+  const rows = stockRows(), seen = new Set(rows.map(r => keyOf(r.category, r.part)));
+  for (const x of S.st.extra) if (!seen.has(keyOf(x.category, x.part))) rows.push({category:x.category, part:x.part, s:{"在庫":0, "簿外":0}, count:0, last:""});
+  return rows.map(r => ({...r, qty: r.s[S.st.storage]}));
+}
+function stStats(){
+  const all = stItems(); let done = 0, bad = 0, noReason = 0;
+  for (const r of all){
+    const c = S.st.counts[keyOf(r.category, r.part)];
+    if (!isCounted(c)) continue;
+    done++;
+    if (Number(c.counted) !== r.qty){ bad++; if (!c.reason) noReason++; }
+  }
+  return {total: all.length, done, bad, noReason};
+}
+function updateProg(){
+  const el = $("#st-prog"); if (!el || !S.st) return;
+  const t = stStats();
+  el.replaceChildren("数えた ", h("b", {}, String(t.done)), " / " + t.total + "件　合わない ", h("b", {}, String(t.bad)), "件");
+}
+function startSt(storage){
+  S.st = {date: today(), person: store.get("pn-person"), storage, counts: {}, extra: []};
+  saveDraft(); render();
+}
+function stRow(r){
+  const k = keyOf(r.category, r.part);
+  const c = S.st.counts[k] || {};
+  const input = h("input", {type:"number", inputmode:"numeric", min:"0", step:"1", placeholder:"実数", "aria-label": r.part + "の実数"});
+  input.value = isCounted(c) ? c.counted : "";
+  const diffEl = h("span", {class:"diff"});
+  const sel = h("select", {"aria-label":"合わない理由"}, h("option", {value:""}, "理由を選ぶ"), ...REASONS.map(x => h("option", {value:x}, x)));
+  sel.value = c.reason || "";
+  const note = h("input", {placeholder:"メモ（任意）", autocomplete:"off"});
+  note.value = c.note || "";
+  const reasonBox = h("div", {class:"reason"}, sel, note);
+  const cur = () => S.st.counts[k] || (S.st.counts[k] = {});
+  const row = h("div", {class:"strow"},
+    h("div", {class:"part"}, ...pname(r.category, r.part)),
+    h("div", {class:"book"}, bookLabel(), h("b", {}, String(r.qty))),
+    h("div", {class:"cnt"}, input,
+      h("button", {type:"button", class:"same", onclick(){ input.value = r.qty < 0 ? 0 : r.qty; input.dispatchEvent(new Event("input")); }}, bookLabel() + "どおり"),
+      diffEl),
+    reasonBox);
+  function paint(){
+    const cc = S.st.counts[k];
+    row.classList.remove("ok", "bad"); diffEl.className = "diff";
+    if (!isCounted(cc)){ diffEl.textContent = ""; reasonBox.hidden = true; return; }
+    const d = Number(cc.counted) - r.qty;
+    row.classList.add(d === 0 ? "ok" : "bad"); diffEl.classList.add(d === 0 ? "ok" : "bad");
+    diffEl.textContent = d === 0 ? "一致" : "差 " + signed(d);
+    reasonBox.hidden = d === 0;
+    sel.classList.toggle("missing", d !== 0 && !cc.reason);
+  }
+  input.addEventListener("input", () => {
+    const v = input.value.trim();
+    cur().counted = v === "" ? "" : Math.max(0, parseInt(v, 10) || 0);
+    paint(); saveDraft(); updateProg();
+  });
+  sel.addEventListener("change", () => { cur().reason = sel.value; paint(); saveDraft(); updateProg(); });
+  note.addEventListener("input", () => { cur().note = note.value; saveDraft(); });
+  paint();
+  return row;
+}
+function renderStocktake(){
+  $("#sumL").textContent = ""; $("#sumR").textContent = "";
+  if (!S.st){
+    const past = S.stocktakes.map(g => {
+      const bad = g.items.filter(x => x.diff !== 0).length;
+      return h("button", {type:"button", class:"row", onclick: () => openStDetail(g)},
+        h("div", {class:"part"}, h("span", {class:"cat" + (g.storage === "簿外" ? " tag-bo" : "")}, g.storage), fmtDay(g.date)),
+        h("div", {class:"pill " + (bad ? "st" : "eq")}, bad ? "差あり" : "全部一致"),
+        h("div", {class:"meta"}, h("span", {}, g.items.length + "件を数えた"), h("span", {}, "合わない " + bad + "件"), g.person ? h("span", {}, "担当：" + g.person) : null));
+    });
+    return [
+      h("div", {class:"card"},
+        h("h3", {}, "棚卸しモード"),
+        h("p", {class:"hint"}, "部品ごとに実際に数えた数を入力すると、記録との差が出ます。確定すると、差の分が理由つきの「棚卸し」記録として残り、数が実数に合います。在庫と簿外は別々に数えます。"),
+        h("div", {class:"two"},
+          h("button", {type:"button", class:"btn primary", onclick: () => startSt("在庫")}, "在庫を棚卸し"),
+          h("button", {type:"button", class:"btn primary", onclick: () => startSt("簿外")}, "簿外を棚卸し"))),
+      h("div", {class:"day"}, "これまでの棚卸し"),
+      ...(past.length ? past : [emptyState("まだ棚卸しの記録はありません", "棚卸しを確定すると、ここに結果が並びます。")])
+    ];
+  }
+  const dateIn = h("input", {type:"date", id:"st-date", "aria-label":"棚卸し日"}); dateIn.value = S.st.date;
+  dateIn.addEventListener("change", () => { S.st.date = dateIn.value; saveDraft(); });
+  const personIn = h("input", {id:"st-person", placeholder:"担当者", autocomplete:"off", "aria-label":"担当者"}); personIn.value = S.st.person || "";
+  personIn.addEventListener("input", () => { S.st.person = personIn.value; saveDraft(); });
+  const stop = h("button", {type:"button", class:"btn danger", onclick(){
+    if (!stop.classList.contains("armed")){ stop.classList.add("armed"); stop.textContent = "もう一度押すと中止（入力した数は消えます）"; setTimeout(() => { stop.classList.remove("armed"); stop.textContent = "中止"; }, 3000); return; }
+    S.st = null; saveDraft(); render(); toast("棚卸しを中止しました");
+  }}, "中止");
+  const q = norm(S.q);
+  let rows = stItems().filter(r => (!S.cat || r.category === S.cat) && (!q || norm(r.part + " " + r.category).includes(q)));
+  sortParts(rows, S.sortStock, S.st.storage);
+  const exCat = h("input", {placeholder:"部品名", autocomplete:"off", "aria-label":"追加する部品名"});
+  exCat.value = S.cat || "";
+  const exPart = h("input", {placeholder:"型式", autocomplete:"off", "aria-label":"追加する型式"});
+  const out = [
+    h("div", {class:"card"},
+      h("h3", {}, "棚卸し中（" + S.st.storage + "）"),
+      h("div", {class:"two"}, dateIn, personIn),
+      h("div", {class:"prog", id:"st-prog"}),
+      h("div", {class:"actions"}, stop, h("button", {type:"button", class:"btn primary", onclick: openStConfirm}, "確定へ進む"))),
+    h("div", {class:"day"}, "実際に数えた数を入力（数えていない部品は空のままでOK）"),
+    ...(rows.length ? rows.map(stRow) : [emptyState("該当する部品がありません", "検索語や部品名を変えるか、下から部品を追加してください。")]),
+    h("div", {class:"card"},
+      h("h3", {}, "リストにない部品を追加"),
+      h("div", {class:"two"}, exCat, exPart),
+      h("div", {class:"actions"}, h("button", {type:"button", class:"btn", onclick(){
+        const part = exPart.value.trim(); if (!part && !exCat.value.trim()) return;
+        S.st.extra.push({category: exCat.value.trim(), part}); saveDraft(); render();
+      }}, "追加")))
+  ];
+  setTimeout(updateProg, 0);
+  return out;
+}
+function stCountedItems(){
+  return stItems().map(r => ({r, c: S.st.counts[keyOf(r.category, r.part)]})).filter(x => isCounted(x.c));
+}
+function renderStConfirm(){
+  const items = stCountedItems(), t = stStats();
+  const mis = items.filter(x => Number(x.c.counted) !== x.r.qty);
+  $("#st-sum").replaceChildren("数えた ", h("b", {}, String(items.length)), "件　一致 ", h("b", {}, String(items.length - mis.length)), "件　合わない ", h("b", {}, String(mis.length)), "件");
+  $("#st-mis").replaceChildren(...mis.map(({r, c}) => {
+    const d = Number(c.counted) - r.qty;
+    return h("div", {class:"strow bad"},
+      h("div", {class:"part"}, ...pname(r.category, r.part)),
+      h("div", {class:"pill " + (d > 0 ? "pos" : "neg")}, signed(d)),
+      h("div", {class:"meta"}, h("span", {}, bookLabel() + " " + r.qty + " → 実数 " + c.counted), h("span", {class: c.reason ? "" : "zero"}, c.reason || "理由が未選択"), c.note ? h("span", {}, c.note) : null));
+  }));
+  let err = "";
+  if (!items.length) err = "まだ1件も数が入力されていません。";
+  else if (t.noReason) err = "合わない部品のうち " + t.noReason + "件は理由が選ばれていません。戻って選んでください。";
+  else if (!S.st.date) err = "棚卸し日を入力してください。";
+  $("#st-err").textContent = err;
+  $("#st-go").disabled = !!err;
+}
+function openStConfirm(){ renderStConfirm(); $("#ov-st").hidden = false; }
+async function confirmSt(){
+  const btn = $("#st-go"); btn.disabled = true; btn.textContent = "確定中…";
+  const items = stCountedItems().map(({r, c}) => ({category: r.category, part: r.part, counted: c.counted, reason: c.reason || "", note: c.note || ""}));
+  try {
+    const d = await call("saveStocktake", {date: S.st.date, person: (S.st.person || "").trim(), storage: S.st.storage, items});
+    if (S.st.person) store.set("pn-person", S.st.person.trim());
+    S.st = null; saveDraft(); closeSheets(); apply(d);
+    toast("棚卸しを確定しました（合わなかった部品 " + d.saved.diffs + "件）");
+  } catch (e){
+    $("#st-err").textContent = errMsg(e); btn.disabled = false;
+  } finally { btn.textContent = "確定する"; }
+}
+function openStDetail(g){
+  const items = g.items.slice().sort((a,b) => Math.abs(b.diff) - Math.abs(a.diff) || cmpJa(a.part, b.part));
+  const bad = items.filter(x => x.diff !== 0);
+  let plus = 0, minus = 0; for (const x of bad){ if (x.diff > 0) plus += x.diff; else minus += x.diff; }
+  $("#std-title").textContent = "棚卸し（" + g.storage + "） " + fmtDay(g.date);
+  $("#std-meta").textContent = items.length + "件を数えた・合わない " + bad.length + "件" + (bad.length ? "（+" + plus + " ／ −" + Math.abs(minus) + "）" : "") + (g.person ? "・担当：" + g.person : "");
+  $("#std-list").replaceChildren(...items.map(x => h("div", {class:"strow " + (x.diff ? "bad" : "ok")},
+    h("div", {class:"part"}, ...pname(x.category, x.part)),
+    x.diff ? h("div", {class:"pill " + (x.diff > 0 ? "pos" : "neg")}, signed(x.diff)) : h("div", {class:"pill eq"}, "一致"),
+    h("div", {class:"meta"}, h("span", {}, (g.storage === "簿外" ? "記録 " : "帳簿 ") + x.book + " → 実数 " + x.counted), x.reason ? h("span", {}, x.reason) : null, x.note ? h("span", {}, x.note) : null))));
+  $("#ov-std").hidden = false;
+}
+
+/* ---------- 操作 ---------- */
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { S.view = b.dataset.view; render(); }));
+$("#q").addEventListener("input", e => { S.q = e.target.value; render(); });
+$("#sort").addEventListener("change", e => { if (S.view === "history") S.sortHist = e.target.value; else S.sortStock = e.target.value; render(); });
+$("#st-go").addEventListener("click", confirmSt);
+$("#from").addEventListener("change", e => { S.from = e.target.value; render(); });
+$("#to").addEventListener("change", e => { S.to = e.target.value; render(); });
+$("#reload").addEventListener("click", refresh);
+$("#fab").addEventListener("click", () => openEntry(null));
+$("#f").addEventListener("submit", saveEntry);
+F("del").addEventListener("click", () => openCancel(S.editing));
+$("#cx-go").addEventListener("click", cancelEntry);
+document.querySelectorAll(".kind button[data-k]").forEach(b => b.addEventListener("click", () => setKind(b.dataset.k)));
+document.querySelectorAll(".kind button[data-s]").forEach(b => b.addEventListener("click", () => setStore(b.dataset.s)));
+F("dec").addEventListener("click", () => { F("qty").value = Math.max(1, (parseInt(F("qty").value,10)||1) - 1); updateHint(); });
+F("inc").addEventListener("click", () => { F("qty").value = (parseInt(F("qty").value,10)||0) + 1; updateHint(); });
+F("qty").addEventListener("input", updateHint);
+F("cat").addEventListener("input", () => {
+  // 登録済みの部品名に切り替えたとき、ほかの部品名の型式が入っていたら消す（新しく打った型式は残す）
+  const cat = F("cat").value.trim(), part = F("part").value.trim();
+  if (part && S.entries.some(e => e.category === cat) && S.entries.some(e => e.part === part)
+      && !S.entries.some(e => e.category === cat && e.part === part)) F("part").value = "";
+  renderOpts(); updateHint();
+});
+["place","person"].forEach(k => F(k).addEventListener("input", renderOpts));
+F("part").addEventListener("input", () => {
+  const part = F("part").value.trim();
+  if (part && !F("cat").value.trim()){
+    const cats = uniq(S.entries.filter(e => e.part === part).map(e => e.category));
+    if (cats.length === 1) F("cat").value = cats[0];
+  }
+  renderOpts(); updateHint();
+});
+["cat","part","place","person"].forEach(k => $("#s-" + k).addEventListener("change", e => {
+  const v = e.target.value; if (!v) return;
+  if (k === "part" && v.includes("\u0000")){
+    // 部品名ごとの一覧から型式を選んだときは、部品名も一緒に入れる
+    const [p, g] = v.split("\u0000");
+    F("part").value = p;
+    if (g !== "（部品名なし）"){ F("cat").value = g; }
+  } else {
+    F(k).value = v;
+  }
+  F(k).dispatchEvent(new Event("input"));
+}));
+$("#c-add").addEventListener("click", addItem);
+$("#c-new").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); addItem(); } });
+document.querySelectorAll("#c-kinds button").forEach(b => b.addEventListener("click", () => { S.manageKind = b.dataset.kind; $("#c-err").textContent = ""; renderItemList(); }));
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeSheets));
+document.querySelectorAll(".overlay").forEach(o => o.addEventListener("click", e => { if (e.target === o) closeSheets(); }));
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheets(); });
+// ほかの人の記入を拾うため、画面に戻ったときと1分ごとに読み直す
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+setInterval(() => { if (!document.hidden && $("#ov-entry").hidden) refresh(); }, 60000);
+
+/* ---------- 接続の設定 ---------- */
+// デプロイ画面の「ウェブアプリ」のURL（会社のアカウントだと /a/macros/ドメイン/ が入る）
+const API_RE = /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[\w-]+\/exec$/;
+const setupLink = () => location.origin + location.pathname + "#url=" + encodeURIComponent(API.url) + "&key=" + encodeURIComponent(API.key);
+function showShare(){
+  const on = !!(API.url && API.key);
+  $("#su-share").hidden = !on;
+  if (on) $("#su-link").textContent = setupLink();
+}
+function openSetup(){
+  closeSheets();
+  $("#su-url").value = API.url; $("#su-key").value = API.key;
+  $("#su-err").textContent = ""; $("#su-ok").textContent = "";
+  showShare();
+  $("#ov-setup").hidden = false;
+}
+async function saveSetup(ev){
+  ev.preventDefault();
+  const url = $("#su-url").value.trim(), key = $("#su-key").value.trim();
+  $("#su-ok").textContent = "";
+  if (!API_RE.test(url)){ $("#su-err").textContent = "URLは https://script.google.com/ で始まり /exec で終わるものを入れてください（デプロイ画面の「ウェブアプリ」のURL）。"; return; }
+  if (!key){ $("#su-err").textContent = "合言葉を入れてください。"; return; }
+  $("#su-err").textContent = ""; $("#su-go").disabled = true; $("#su-go").textContent = "確認中…";
+  const prev = {url: API.url, key: API.key};
+  Object.assign(API, {url, key});
+  try {
+    const d = await call("getData");
+    store.set("pn-api", url); store.set("pn-key", key);
+    apply(d);
+    $("#su-ok").textContent = "つながりました（記録 " + S.entries.length + "件）。";
+    showShare();
+  } catch (e){
+    Object.assign(API, prev);
+    $("#su-err").textContent = errMsg(e);
+  } finally { $("#su-go").disabled = false; $("#su-go").textContent = "つなぐ"; }
+}
+// 職場の人に送るリンク（#url=…&key=…）で開いたときは、その値を入れてすぐ確かめる。# 以降はサーバーに送られない
+function readHash(){
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (!p.get("url") || !p.get("key")) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  openSetup();
+  $("#su-url").value = p.get("url"); $("#su-key").value = p.get("key");
+  $("#su").requestSubmit();
+  return true;
+}
+$("#su").addEventListener("submit", saveSetup);
+addEventListener("hashchange", readHash);
+$("#c-setup").addEventListener("click", openSetup);
+$("#su-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(setupLink()); toast("リンクをコピーしました"); }
+  catch (e){ getSelection().selectAllChildren($("#su-link")); toast("リンクを長押ししてコピーしてください"); }
+});
+
+API.url = store.get("pn-api"); API.key = store.get("pn-key");
+loadDraft();
+// 前回の記録をすぐ出してから、最新を読み込む（電波がないときも前回の記録は見られる）
+try { const c = JSON.parse(store.get("pn-data") || "null"); if (c && c.d && API.url) apply(c.d, new Date(c.at)); } catch (e){}
+render();
+if (!readHash()){ if (API.url && API.key) refresh(); else openSetup(); }
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
