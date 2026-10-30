@@ -5,7 +5,7 @@
  * 記録の読み書き（Apps Script への POST）はここを通さない。
  * 画面のファイルを変えたら VERSION を上げる（古いしまい分を消すため）。
  */
-const VERSION = "zaiko-v1";
+const VERSION = "zaiko-v3";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

@@ -134,7 +134,14 @@ h1{margin:0;white-space:nowrap;font-size:19px;font-weight:700;letter-spacing:.04
 .catrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .catrow .nm{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500}
 .catrow .n{font-size:12px;color:var(--muted)}
-.catrow button{border:1px solid var(--line);background:transparent;border-radius:8px;padding:4px 10px;font-size:12px;color:var(--out)}
+.catrow button{flex:none;border:1px solid var(--line);background:transparent;border-radius:8px;padding:4px 10px;font-size:12px;color:var(--out)}
+.catrow button.rn{color:var(--accent)}
+.catrow .nm small{display:block;font-size:12px;font-weight:400;color:var(--muted)}
+.catrow.editing{flex-wrap:wrap}
+.catrow.editing input{flex:1 1 100%;min-width:0;border:1px solid var(--accent);background:var(--bg);border-radius:10px;padding:8px 12px;font-size:16px}
+.catrow.editing .acts{display:flex;gap:8px;margin-left:auto}
+.catrow.editing .acts button{padding:6px 14px;font-size:13px;color:var(--ink)}
+.catrow.editing .acts button.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;margin-top:14px}
 .card h3{margin:0;font-size:16px}
 .card p{margin:0}
@@ -254,12 +261,13 @@ h1{margin:0;white-space:nowrap;font-size:19px;font-weight:700;letter-spacing:.04
     <h2>候補の管理</h2>
     <div class="seg" id="c-kinds" role="group" aria-label="管理する項目">
       <button type="button" data-kind="cat" aria-pressed="true">部品名</button>
+      <button type="button" data-kind="part" aria-pressed="false">型式</button>
       <button type="button" data-kind="place" aria-pressed="false">場所</button>
       <button type="button" data-kind="person" aria-pressed="false">担当者</button>
     </div>
     <div class="addcat"><input id="c-new" autocomplete="off"><button type="button" class="btn primary" id="c-add">追加</button></div>
     <div id="c-list"></div>
-    <div class="hint">ここに追加したものが、記入するときの候補に出ます。記録で使われているものは削除できません。</div>
+    <div class="hint" id="c-hint"></div>
     <div class="err" id="c-err"></div>
     <button type="button" class="linkbtn" id="c-setup">接続の設定・職場の人に送るリンク</button>
     <div class="actions"><button type="button" class="btn" data-close>閉じる</button></div>
@@ -402,7 +410,7 @@ function apply(d, at){
   $("#banner").hidden = true;
   render();
   if (!$("#ov-entry").hidden){ renderOpts(); updateHint(); }
-  if (!$("#ov-cats").hidden) renderItemList();
+  if (!$("#ov-cats").hidden && !S.renaming) renderItemList();
   if (!$("#ov-st").hidden) renderStConfirm();
 }
 async function refresh(){
@@ -426,15 +434,26 @@ const pname = (c, p) => [c || p || "（名前なし）", c && p ? h("span", {cla
 // 取り消しの記録か、取り消された記録か（どちらも在庫の数は差し引きゼロ）
 const isCx = e => e.kind === "取消" || !!e.cancelRef;
 // 候補 = 一覧シートに登録したもの + 記録で使われたもの
+// 取り消した記録（と取り消しの記録）しかない名前は、候補に出さない
 function allItems(kind){
   const m = new Map(), field = FIELD[kind];
   for (const name of S.lists[kind] || []) m.set(name, {name, listed:true, n:0});
   for (const e of S.entries){
-    const n = e[field] || ""; if (!n) continue;
+    const n = e[field] || ""; if (!n || isCx(e)) continue;
     if (!m.has(n)) m.set(n, {name:n, listed:false, n:0});
     m.get(n).n++;
   }
   return [...m.values()].sort((a,b) => cmpJa(a.name,b.name));
+}
+// 記録の日付（同じ日なら登録が新しい方）が新しい部品名から n 個
+function recentCats(n){
+  const last = new Map();
+  for (const e of S.entries){
+    if (!e.category || isCx(e)) continue;
+    const k = (e.date || "") + "|" + String(e.createdAt || 0).padStart(15, "0"), cur = last.get(e.category);
+    if (!cur || k > cur) last.set(e.category, k);
+  }
+  return [...last].sort((a,b) => a[1] < b[1] ? 1 : a[1] > b[1] ? -1 : 0).slice(0, n).map(([name]) => ({name}));
 }
 function stockRows(){
   const m = new Map();
@@ -480,8 +499,10 @@ function renderControls(){
   const sel = $("#sort"), cur = S.view === "history" ? S.sortHist : S.sortStock;
   sel.replaceChildren(...SORTS[S.view].map(([v,l]) => h("option", {value:v, selected: v===cur}, l)));
   if (S.view !== "history" && !SORTS[S.view].some(([v]) => v === cur)){ S.sortStock = "name"; sel.value = "name"; }
-  const cats = allItems("cat");
-  if (S.cat && !cats.some(c => c.name === S.cat)) S.cat = "";
+  if (S.cat && !allItems("cat").some(c => c.name === S.cat)) S.cat = "";
+  // 最近記録した部品名を5つだけ（選んでいる部品名が入っていなければ先頭に足す）
+  const cats = recentCats(5);
+  if (S.cat && !cats.some(c => c.name === S.cat)) cats.unshift({name: S.cat});
   $("#cats").replaceChildren(
     h("button", {type:"button", class:"chip", "aria-pressed": String(!S.cat), onclick(){ S.cat=""; render(); }}, "すべて"),
     ...cats.map(c => h("button", {type:"button", class:"chip", "aria-pressed": String(S.cat===c.name), onclick(){ S.cat = S.cat===c.name ? "" : c.name; render(); }}, c.name)),
@@ -617,10 +638,10 @@ function optSources(){
   const freq = (list, field) => {
     const m = new Map();
     for (const name of list) m.set(name, 0);
-    for (const e of S.entries){ const v = e[field]; if (v && m.has(v)) m.set(v, m.get(v) + 1); }
+    for (const e of S.entries){ const v = e[field]; if (v && m.has(v) && !isCx(e)) m.set(v, m.get(v) + 1); }
     return m;
   };
-  const partList = uniq(S.entries.filter(e => !cat || (e.category||"") === cat).map(e => e.part));
+  const partList = uniq(S.entries.filter(e => !isCx(e) && (!cat || (e.category||"") === cat)).map(e => e.part));
   return {
     cat: freq(allItems("cat").map(c => c.name), "category"),
     part: freq(partList, "part"),
@@ -634,7 +655,7 @@ function fillPicker(key, counts){
   if (key === "part" && !F("cat").value.trim()){
     // 部品名が未入力のときは、型式を部品名ごとにまとめて出す
     const groups = new Map();
-    for (const e of S.entries) if (e.part){
+    for (const e of S.entries) if (e.part && !isCx(e)){
       const g = e.category || "（部品名なし）";
       if (!groups.has(g)) groups.set(g, new Set());
       groups.get(g).add(e.part);
@@ -776,24 +797,90 @@ async function cancelEntry(){
 }
 
 /* ---------- 候補の管理 ---------- */
+// 型式は「部品名＋型式」の組で1つ。削除はなく、名前を変えるだけ
+function partItems(){
+  const m = new Map();
+  for (const e of S.entries){
+    if (!e.part || isCx(e)) continue;
+    const k = keyOf(e.category, e.part);
+    if (!m.has(k)) m.set(k, {name: e.part, cat: e.category, n: 0});
+    m.get(k).n++;
+  }
+  return [...m.values()].sort((a,b) => cmpJa(a.cat, b.cat) || cmpJa(a.name, b.name));
+}
+// 名前を変えている途中の行（一覧は描き直すたびに作り直すので、名前で見分ける）
+const itemKey = c => S.manageKind + "\u0000" + (c.cat || "") + "\u0000" + c.name;
+const isRenaming = c => S.renaming === itemKey(c);
 function renderItemList(){
-  const kind = S.manageKind, label = LABEL[kind], items = allItems(kind);
+  const kind = S.manageKind, isPart = kind === "part", label = isPart ? "型式" : LABEL[kind];
   document.querySelectorAll("#c-kinds button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
-  $("#c-new").placeholder = "新しい" + label + "を入力";
-  $("#c-list").replaceChildren(...(items.length ? items.map(c => h("div", {class:"catrow"},
-    h("span", {class:"nm"}, c.name),
+  $("#c-new").placeholder = isPart ? "型式・部品名で絞り込み" : "新しい" + label + "を入力";
+  $("#c-add").hidden = isPart;
+  $("#c-hint").textContent = isPart
+    ? "型式は記入したときに増えます。「名前を変える」と、その部品名の中の型式が、過去の記録も含めてすべて変わります。"
+    : "ここに追加したものが、記入するときの候補に出ます。「名前を変える」と、過去の記録も含めてすべて変わります。記録で使われているものは削除できません（記録をすべて取り消した名前は削除できます）。";
+  const q = isPart ? norm($("#c-new").value) : "";
+  const items = (isPart ? partItems() : allItems(kind)).filter(c => !q || norm(c.name + " " + (c.cat || "")).includes(q));
+  $("#c-list").replaceChildren(...(items.length ? items.map(c => isRenaming(c) ? renameRow(c, label) : h("div", {class:"catrow"},
+    h("span", {class:"nm"}, c.name, isPart ? h("small", {}, c.cat || "（部品名なし）") : null),
     h("span", {class:"n"}, c.n + "件"),
-    c.n === 0 && c.listed ? h("button", {type:"button", async onclick(ev){
+    h("button", {type:"button", class:"rn", onclick(){ S.renaming = itemKey(c); $("#c-err").textContent = ""; renderItemList(); }}, "名前を変える"),
+    !isPart && c.n === 0 && c.listed ? h("button", {type:"button", async onclick(ev){
       ev.target.disabled = true;
       try { apply(await call("deleteItem", kind, c.name)); $("#c-err").textContent = ""; }
       catch (e){ $("#c-err").textContent = errMsg(e); ev.target.disabled = false; }
     }}, "削除") : null
-  )) : [h("div", {class:"hint"}, label + "はまだありません。")]));
+  )) : [h("div", {class:"hint"}, q ? "当てはまる" + label + "はありません。" : label + "はまだありません。")]));
+  const inp = $("#c-list .editing input");
+  if (inp){ inp.focus(); inp.select(); }
 }
-function openManage(){ $("#c-err").textContent = ""; $("#c-new").value = ""; renderItemList(); $("#ov-cats").hidden = false; }
+function renameRow(c, label){
+  const inp = h("input", {value: c.name, autocomplete: "off", "aria-label": "新しい" + label});
+  const go = h("button", {type:"button", class:"go", onclick: () => renameItem(c, inp.value.trim(), go)}, "変える");
+  inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); go.click(); } });
+  return h("div", {class:"catrow editing"},
+    h("span", {class:"nm"}, c.name + " → ", c.cat !== undefined ? h("small", {}, c.cat || "（部品名なし）") : null),
+    inp,
+    h("div", {class:"acts"},
+      h("button", {type:"button", onclick(){ S.renaming = null; renderItemList(); }}, "やめる"), go));
+}
+async function renameItem(c, to, btn){
+  const kind = S.manageKind, isPart = kind === "part", label = isPart ? "型式" : LABEL[kind];
+  if (!to){ $("#c-err").textContent = "新しい" + label + "を入力してください。"; return; }
+  if (to === c.name){ S.renaming = null; renderItemList(); return; }
+  const exists = isPart ? S.entries.some(e => e.category === c.cat && e.part === to) : allItems(kind).some(x => x.name === to);
+  const msg = exists
+    ? "「" + to + "」はもうあります。「" + c.name + "」の記録" + c.n + "件を「" + to + "」にまとめますか？\n（あとから分け直すことはできません）"
+    : "「" + c.name + "」を「" + to + "」に変えます。過去の記録" + c.n + "件も変わります。よろしいですか？";
+  if (!confirm(msg)) return;
+  btn.disabled = true;
+  try {
+    const d = await call("renameItem", kind, c.name, to, isPart ? c.cat : "");
+    renameInDraft(kind, c, to);
+    if (kind === "cat" && S.cat === c.name) S.cat = to;
+    S.renaming = null;
+    apply(d);
+    $("#c-err").textContent = "";
+    toast("「" + to + "」に変えました");
+  } catch (e){ $("#c-err").textContent = errMsg(e); btn.disabled = false; }
+}
+// 棚卸しの入力途中の数も、新しい名前に付け替える
+function renameInDraft(kind, c, to){
+  if (!S.st || (kind !== "cat" && kind !== "part")) return;
+  const move = (cat, part) => kind === "cat" ? (cat === c.name ? [to, part] : null) : (cat === c.cat && part === c.name ? [cat, to] : null);
+  const counts = {};
+  for (const [k, v] of Object.entries(S.st.counts)){
+    const [cat, part] = k.split("\u0000"), m = move(cat, part);
+    counts[m ? keyOf(m[0], m[1]) : k] = v;
+  }
+  S.st.counts = counts;
+  S.st.extra.forEach(x => { const m = move(x.category, x.part); if (m){ x.category = m[0]; x.part = m[1]; } });
+  saveDraft();
+}
+function openManage(){ S.renaming = null; $("#c-err").textContent = ""; $("#c-new").value = ""; renderItemList(); $("#ov-cats").hidden = false; }
 async function addItem(){
   const name = $("#c-new").value.trim(), kind = S.manageKind;
-  if (!name) return;
+  if (!name || kind === "part") return;
   if (allItems(kind).some(c => c.name === name)){ $("#c-err").textContent = "その" + LABEL[kind] + "はもうあります。"; return; }
   $("#c-add").disabled = true;
   try { apply(await call("addItem", kind, name)); $("#c-new").value = ""; $("#c-err").textContent = ""; }
@@ -1020,7 +1107,8 @@ F("part").addEventListener("input", () => {
 }));
 $("#c-add").addEventListener("click", addItem);
 $("#c-new").addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); addItem(); } });
-document.querySelectorAll("#c-kinds button").forEach(b => b.addEventListener("click", () => { S.manageKind = b.dataset.kind; $("#c-err").textContent = ""; renderItemList(); }));
+$("#c-new").addEventListener("input", () => { if (S.manageKind === "part") renderItemList(); });
+document.querySelectorAll("#c-kinds button").forEach(b => b.addEventListener("click", () => { S.manageKind = b.dataset.kind; S.renaming = null; $("#c-new").value = ""; $("#c-err").textContent = ""; renderItemList(); }));
 document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeSheets));
 document.querySelectorAll(".overlay").forEach(o => o.addEventListener("click", e => { if (e.target === o) closeSheets(); }));
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheets(); });
