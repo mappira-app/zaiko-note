@@ -408,7 +408,10 @@ function apply(d, at){
   S.ready = true; S.loadedAt = at || new Date();
   if (!at) store.set("pn-data", JSON.stringify({at: S.loadedAt.getTime(), d}));
   $("#banner").hidden = true;
-  render();
+  // 棚卸しで数を入力している最中は、自動更新で入力欄を作り直さない
+  const a = document.activeElement;
+  if (S.view === "stocktake" && S.st && $("#list").contains(a) && a.matches("input,select,textarea")){ renderControls(); updateProg(); }
+  else render();
   if (!$("#ov-entry").hidden){ renderOpts(); updateHint(); }
   if (!$("#ov-cats").hidden && !S.renaming) renderItemList();
   if (!$("#ov-st").hidden) renderStConfirm();
@@ -607,8 +610,6 @@ function render(){
     $("#sumL").textContent = ""; $("#sumR").textContent = "";
     return;
   }
-  // 棚卸しで数を入力している最中は、自動更新で入力欄を作り直さない
-  if (S.view === "stocktake" && S.st && $("#list").contains(document.activeElement)){ updateProg(); return; }
   $("#list").replaceChildren(...(VIEW_STORE[S.view] ? renderStock() : S.view === "history" ? renderHistory() : renderStocktake()));
 }
 
